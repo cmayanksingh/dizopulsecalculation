@@ -219,12 +219,12 @@ export default function App() {
     const extraExpenses = expenses.reduce((acc, e) => acc + (parseFloat(e.amount) || 0), 0);
     const finalProfit = totalProfit - extraExpenses;
 
-    // 2. Lifetime Bank Totals
-    const vivekIn = products.filter(p => p.bank === 'Vivek Bank').reduce((acc, p) => acc + (parseFloat(p.total_sales) || 0), 0);
+    // 2. Lifetime Bank Totals (Only Profit is added to Bank, not total sales)
+    const vivekIn = products.filter(p => p.bank === 'Vivek Bank').reduce((acc, p) => acc + (parseFloat(p.total_profit) || 0), 0);
     const vivekOut = expenses.filter(e => e.bank === 'Vivek Bank').reduce((acc, e) => acc + (parseFloat(e.amount) || 0), 0);
     const vivekBalance = vivekIn - vivekOut;
 
-    const mayankIn = products.filter(p => p.bank === 'Mayank Bank').reduce((acc, p) => acc + (parseFloat(p.total_sales) || 0), 0);
+    const mayankIn = products.filter(p => p.bank === 'Mayank Bank').reduce((acc, p) => acc + (parseFloat(p.total_profit) || 0), 0);
     const mayankOut = expenses.filter(e => e.bank === 'Mayank Bank').reduce((acc, e) => acc + (parseFloat(e.amount) || 0), 0);
     const mayankBalance = mayankIn - mayankOut;
 
@@ -248,10 +248,11 @@ export default function App() {
       const mExtraExps = mExps.reduce((acc, e) => acc + (parseFloat(e.amount) || 0), 0);
       const mFinalProfit = mProfit - mExtraExps;
 
-      const vRec = mProds.filter(p => p.bank === 'Vivek Bank').reduce((acc, p) => acc + (parseFloat(p.total_sales) || 0), 0);
+      // Only Profit added to Bank in monthly records
+      const vRec = mProds.filter(p => p.bank === 'Vivek Bank').reduce((acc, p) => acc + (parseFloat(p.total_profit) || 0), 0);
       const vSp = mExps.filter(e => e.bank === 'Vivek Bank').reduce((acc, e) => acc + (parseFloat(e.amount) || 0), 0);
 
-      const mRec = mProds.filter(p => p.bank === 'Mayank Bank').reduce((acc, p) => acc + (parseFloat(p.total_sales) || 0), 0);
+      const mRec = mProds.filter(p => p.bank === 'Mayank Bank').reduce((acc, p) => acc + (parseFloat(p.total_profit) || 0), 0);
       const mSp = mExps.filter(e => e.bank === 'Mayank Bank').reduce((acc, e) => acc + (parseFloat(e.amount) || 0), 0);
 
       return {
@@ -1079,11 +1080,11 @@ export default function App() {
               {/* Monthly Flow Stats */}
               <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-200/60 dark:border-slate-700/60">
                 <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Money Received</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Profit Received</span>
                   <span className="text-xs sm:text-sm font-black font-mono text-emerald-600 mt-1 block">
                     +{formatINR(calculations.activeMetrics.vivek?.moneyReceived || 0)}
                   </span>
-                  <span className="text-[10px] text-slate-400 block mt-0.5">Product sales in</span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">Product profit added</span>
                 </div>
 
                 <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800">
@@ -1129,11 +1130,11 @@ export default function App() {
               {/* Monthly Flow Stats */}
               <div className="grid grid-cols-3 gap-2 pt-3 border-t border-slate-200/60 dark:border-slate-700/60">
                 <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Money Received</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase block">Profit Received</span>
                   <span className="text-xs sm:text-sm font-black font-mono text-emerald-600 mt-1 block">
                     +{formatINR(calculations.activeMetrics.mayank?.moneyReceived || 0)}
                   </span>
-                  <span className="text-[10px] text-slate-400 block mt-0.5">Product sales in</span>
+                  <span className="text-[10px] text-slate-400 block mt-0.5">Product profit added</span>
                 </div>
 
                 <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800">

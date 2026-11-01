@@ -36,9 +36,9 @@ router.get('/simple/summary', (req, res) => {
       FROM extra_expenses
     `).get();
 
-    // Lifetime Bank tracking for Vivek Bank
+    // Lifetime Bank tracking for Vivek Bank (Only profit added to bank)
     const vivekLifetimeIn = db.prepare(`
-      SELECT COALESCE(SUM(total_sales), 0) AS total
+      SELECT COALESCE(SUM(total_profit), 0) AS total
       FROM product_entries
       WHERE bank = 'Vivek Bank'
     `).get().total;
@@ -51,9 +51,9 @@ router.get('/simple/summary', (req, res) => {
 
     const vivekLifetimeBalance = vivekLifetimeIn - vivekLifetimeOut;
 
-    // Lifetime Bank tracking for Mayank Bank
+    // Lifetime Bank tracking for Mayank Bank (Only profit added to bank)
     const mayankLifetimeIn = db.prepare(`
-      SELECT COALESCE(SUM(total_sales), 0) AS total
+      SELECT COALESCE(SUM(total_profit), 0) AS total
       FROM product_entries
       WHERE bank = 'Mayank Bank'
     `).get().total;
@@ -103,7 +103,7 @@ router.get('/simple/summary', (req, res) => {
       `).get(mStr);
 
       const vIn = db.prepare(`
-        SELECT COALESCE(SUM(total_sales), 0) AS total
+        SELECT COALESCE(SUM(total_profit), 0) AS total
         FROM product_entries
         WHERE bank = 'Vivek Bank' AND substr(entry_date, 1, 7) = ?
       `).get(mStr).total;
@@ -115,7 +115,7 @@ router.get('/simple/summary', (req, res) => {
       `).get(mStr).total;
 
       const mIn = db.prepare(`
-        SELECT COALESCE(SUM(total_sales), 0) AS total
+        SELECT COALESCE(SUM(total_profit), 0) AS total
         FROM product_entries
         WHERE bank = 'Mayank Bank' AND substr(entry_date, 1, 7) = ?
       `).get(mStr).total;
