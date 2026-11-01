@@ -25,9 +25,12 @@ import {
   Eye,
   EyeOff,
   ShieldCheck,
-  LogOut
+  LogOut,
+  FileText
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 
 // Firebase Firestore SDK
 import { db } from './firebase';
@@ -43,7 +46,7 @@ import {
   setDoc
 } from 'firebase/firestore';
 
-// Indian Rupee Formatter
+// Indian Rupee Formatter (UI)
 function formatINR(val, options = {}) {
   const { decimals = 2 } = options;
   const num = parseFloat(val);
@@ -55,6 +58,19 @@ function formatINR(val, options = {}) {
     maximumFractionDigits: decimals,
   });
   return `${isNegative ? '- ' : ''}₹${formatted}`;
+}
+
+// PDF Currency Formatter (Uses 'Rs.' so standard PDF fonts never corrupt or show '?')
+function formatPDFINR(val) {
+  const num = parseFloat(val);
+  if (isNaN(num)) return 'Rs. 0.00';
+  const isNegative = num < 0;
+  const absVal = Math.abs(num);
+  const formatted = absVal.toLocaleString('en-IN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `${isNegative ? '- ' : ''}Rs. ${formatted}`;
 }
 
 // Format Month-Year string ('2026-11' -> 'November 2026')
@@ -117,6 +133,11 @@ export default function App() {
     setSecurityError('');
     setShowSecurityPassword(false);
   };
+
+  // Download PDF Modal State
+  const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+  const [pdfSelectedMonth, setPdfSelectedMonth] = useState('all');
+  const [pdfGenerating, setPdfGenerating] = useState(false);
 
   // Authentication & Security (Password Protection)
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
@@ -521,79 +542,240 @@ export default function App() {
     }
   };
 
-  // Export to Excel (.xlsx)
-  const handleExportExcel = () => {
-    const wb = XLSX.utils.book_new();
+  // Generate & Download Comprehensive Full Details PDF Report
+  const handleExportPDF = (targetMonth) => {
+    try {
+      setPdfGenerating(true);
 
-    // Summary Sheet
-    const summaryRows = [
-      ['BUSINESS FINANCIAL & MONTHLY SUMMARY (FIREBASE CLOUD)'],
-      ['Generated On', new Date().toLocaleString()],
-      ['Active View', formatMonthYear(selectedMonth)],
-      [],
-      ['Financial Metric', 'Amount (INR)'],
-      ['Total Sales', calculations.activeMetrics.totalSales || 0],
-      ['Total Cost', calculations.activeMetrics.totalCost || 0],
-      ['Total Profit', calculations.activeMetrics.totalProfit || 0],
-      ['Extra Expenses', calculations.activeMetrics.extraExpenses || 0],
-      ['Final Net Profit', calculations.activeMetrics.finalProfit || 0],
-      [],
-      ['Bank Account Balances'],
-      ['Vivek Bank Money Received', calculations.activeMetrics.vivek?.moneyReceived || 0],
-      ['Vivek Bank Money Spent', calculations.activeMetrics.vivek?.moneySpent || 0],
-      ['Vivek Bank Current Balance', calculations.vivekBalance],
-      ['Mayank Bank Money Received', calculations.activeMetrics.mayank?.moneyReceived || 0],
-      ['Mayank Bank Money Spent', calculations.activeMetrics.mayank?.moneySpent || 0],
-      ['Mayank Bank Current Balance', calculations.mayankBalance],
-      ['Total Cash in Banks', calculations.totalCash]
-    ];
-    const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows);
-    XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
+      const doc = new jsPDF('p', 'mm', 'a4');
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
 
-    // Monthly History Sheet
-    const monthlyHistoryRows = calculations.allMonthsBreakdown.map(m => ({
-      'Month': formatMonthYear(m.month),
-      'Total Sales (INR)': m.totalSales,
-      'Total Cost (INR)': m.totalCost,
-      'Total Profit (INR)': m.totalProfit,
-      'Extra Expenses (INR)': m.extraExpenses,
-      'Final Net Profit (INR)': m.finalProfit,
-      'Vivek Received': m.vivek.moneyReceived,
-      'Vivek Spent': m.vivek.moneySpent,
-      'Vivek Net': m.vivek.monthlyNet,
-      'Mayank Received': m.mayank.moneyReceived,
-      'Mayank Spent': m.mayank.moneySpent,
-      'Mayank Net': m.mayank.monthlyNet
-    }));
-    const wsMonthly = XLSX.utils.json_to_sheet(monthlyHistoryRows);
-    XLSX.utils.book_append_sheet(wb, wsMonthly, 'Monthly History');
+      const isAll = !targetMonth || targetMonth === 'all';
+      const periodLabel = isAll ? 'Lifetime Complete Audit' : formatMonthYear(targetMonth);
 
-    // Products Sheet
-    const prodRows = products.map(p => ({
-      'Product Name': p.product_name,
-      'Bank': p.bank,
-      'Quantity': p.quantity,
-      'Cost Price (INR)': p.cost_price,
-      'Sell Price (INR)': p.sell_price,
-      'Total Sales (INR)': p.total_sales,
-      'Total Cost (INR)': p.total_cost,
-      'Total Profit (INR)': p.total_profit,
-      'Date': p.entry_date
-    }));
-    const wsProd = XLSX.utils.json_to_sheet(prodRows);
-    XLSX.utils.book_append_sheet(wb, wsProd, 'Products');
+      // Filter products & expenses for this period
+      const targetProds = isAll 
+        ? [...products] 
+        : products.filter(p => p.entry_date && p.entry_date.startsWith(targetMonth));
+      
+      const targetExps = isAll 
+        ? [...expenses] 
+        : expenses.filter(e => e.expense_date && e.expense_date.startsWith(targetMonth));
 
-    // Expenses Sheet
-    const expRows = expenses.map(e => ({
-      'Expense Name': e.expense_name,
-      'Amount (INR)': e.amount,
-      'Paid From Bank': e.bank,
-      'Date': e.expense_date
-    }));
-    const wsExp = XLSX.utils.json_to_sheet(expRows);
-    XLSX.utils.book_append_sheet(wb, wsExp, 'Extra Expenses');
+      // Metrics for the report
+      const tSales = targetProds.reduce((acc, p) => acc + (parseFloat(p.total_sales) || 0), 0);
+      const tCost = targetProds.reduce((acc, p) => acc + (parseFloat(p.total_cost) || 0), 0);
+      const tProfit = targetProds.reduce((acc, p) => acc + (parseFloat(p.total_profit) || 0), 0);
+      const tExpenses = targetExps.reduce((acc, e) => acc + (parseFloat(e.amount) || 0), 0);
+      const finalProfit = tProfit - tExpenses;
+      const profitMargin = tSales > 0 ? ((finalProfit / tSales) * 100).toFixed(1) + '%' : '0.0%';
 
-    XLSX.writeFile(wb, `Business_Firebase_Account_${new Date().toISOString().split('T')[0]}.xlsx`);
+      // Bank records (Only profit added to bank, expenses deducted)
+      const vProfit = targetProds.filter(p => p.bank === 'Vivek Bank').reduce((acc, p) => acc + (parseFloat(p.total_profit) || 0), 0);
+      const vSpent = targetExps.filter(e => e.bank === 'Vivek Bank').reduce((acc, e) => acc + (parseFloat(e.amount) || 0), 0);
+      const vNet = vProfit - vSpent;
+
+      const mProfit = targetProds.filter(p => p.bank === 'Mayank Bank').reduce((acc, p) => acc + (parseFloat(p.total_profit) || 0), 0);
+      const mSpent = targetExps.filter(e => e.bank === 'Mayank Bank').reduce((acc, e) => acc + (parseFloat(e.amount) || 0), 0);
+      const mNet = mProfit - mSpent;
+
+      // 1. Header Banner
+      doc.setFillColor(15, 23, 42); // slate-900
+      doc.rect(0, 0, pageWidth, 36, 'F');
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(18);
+      doc.setFont('helvetica', 'bold');
+      doc.text('BUSINESS FINANCIAL & ACCOUNTING REPORT', 14, 16);
+
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(148, 163, 184); // slate-400
+      doc.text(`Statement Period: ${periodLabel}`, 14, 25);
+      doc.text(`Generated: ${new Date().toLocaleDateString('en-IN')} ${new Date().toLocaleTimeString('en-IN')}`, pageWidth - 14, 25, { align: 'right' });
+      doc.text('Cloud Synced Database: dizo-calculation', 14, 31);
+
+      // 2. Executive Financial Summary
+      doc.setTextColor(15, 23, 42);
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.text('1. Executive Financial Summary', 14, 46);
+
+      const summaryTableData = [
+        ['Total Sales (Gross Revenue)', formatPDFINR(tSales), 'Total Operating Cost', formatPDFINR(tCost)],
+        ['Total Product Profit', formatPDFINR(tProfit), 'Extra Business Expenses', formatPDFINR(tExpenses)],
+        ['Final Net Profit (Profit - Expenses)', formatPDFINR(finalProfit), 'Net Profit Margin %', profitMargin],
+        ['Total Products Sold Entries', `${targetProds.length} entries`, 'Total Expense Entries', `${targetExps.length} entries`]
+      ];
+
+      doc.autoTable({
+        startY: 50,
+        head: [['Financial Metric', 'Amount', 'Cost / Margin Metric', 'Value']],
+        body: summaryTableData,
+        theme: 'grid',
+        headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 },
+        styles: { fontSize: 8.5, cellPadding: 2.2 },
+        columnStyles: {
+          0: { fontStyle: 'bold', textColor: [71, 85, 105] },
+          1: { fontStyle: 'bold', textColor: [15, 23, 42] },
+          2: { fontStyle: 'bold', textColor: [71, 85, 105] },
+          3: { fontStyle: 'bold', textColor: [15, 23, 42] }
+        }
+      });
+
+      // 3. Bank Account Statement
+      let nextY = doc.lastAutoTable.finalY + 8;
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text('2. Bank Accounts & Cash Statement (Profit In vs Expense Out)', 14, nextY);
+
+      const bankTableData = [
+        ['Vivek Bank', formatPDFINR(vProfit), formatPDFINR(vSpent), formatPDFINR(vNet), formatPDFINR(calculations.vivekBalance)],
+        ['Mayank Bank', formatPDFINR(mProfit), formatPDFINR(mSpent), formatPDFINR(mNet), formatPDFINR(calculations.mayankBalance)],
+        ['COMBINED TOTAL', formatPDFINR(vProfit + mProfit), formatPDFINR(vSpent + mSpent), formatPDFINR(vNet + mNet), formatPDFINR(calculations.totalCash)]
+      ];
+
+      doc.autoTable({
+        startY: nextY + 4,
+        head: [['Bank Account', 'Profit Received', 'Expenses Paid', 'Period Net', 'Current Balance']],
+        body: bankTableData,
+        theme: 'grid',
+        headStyles: { fillColor: [79, 70, 229], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.5 },
+        styles: { fontSize: 8.5, cellPadding: 2.2 },
+        columnStyles: {
+          0: { fontStyle: 'bold', textColor: [15, 23, 42] },
+          1: { fontStyle: 'bold', textColor: [22, 101, 52] }, // green
+          2: { fontStyle: 'bold', textColor: [190, 18, 60] }, // red
+          3: { fontStyle: 'bold', textColor: [30, 41, 59] },
+          4: { fontStyle: 'bold', textColor: [67, 56, 202] }
+        }
+      });
+
+      // 4. Detailed Product Sales Breakdown Table
+      nextY = doc.lastAutoTable.finalY + 8;
+      if (nextY > 230) {
+        doc.addPage();
+        nextY = 20;
+      }
+
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(`3. Detailed Product Sales Entries (${targetProds.length} Records)`, 14, nextY);
+
+      const prodRows = targetProds.map(p => [
+        p.entry_date || '-',
+        p.product_name,
+        p.bank || 'Vivek Bank',
+        p.quantity,
+        formatPDFINR(p.cost_price),
+        formatPDFINR(p.sell_price),
+        formatPDFINR(p.total_profit)
+      ]);
+
+      if (prodRows.length === 0) {
+        prodRows.push(['No product sales entries for this period', '-', '-', '-', '-', '-', '-']);
+      } else {
+        // Add Subtotal Row
+        prodRows.push([
+          'TOTALS',
+          `${targetProds.length} Items`,
+          '-',
+          targetProds.reduce((acc, p) => acc + (parseFloat(p.quantity) || 0), 0),
+          formatPDFINR(tCost),
+          formatPDFINR(tSales),
+          formatPDFINR(tProfit)
+        ]);
+      }
+
+      doc.autoTable({
+        startY: nextY + 4,
+        head: [['Date', 'Product Name', 'Bank', 'Qty', 'Cost Price', 'Sell Price', 'Total Profit']],
+        body: prodRows,
+        theme: 'striped',
+        headStyles: { fillColor: [5, 150, 105], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.5 },
+        styles: { fontSize: 8, cellPadding: 2 },
+        columnStyles: {
+          0: { cellWidth: 22 },
+          1: { fontStyle: 'bold' },
+          6: { fontStyle: 'bold', textColor: [22, 101, 52] }
+        }
+      });
+
+      // 5. Detailed Extra Expenses Breakdown Table
+      nextY = doc.lastAutoTable.finalY + 8;
+      if (nextY > 230) {
+        doc.addPage();
+        nextY = 20;
+      }
+
+      doc.setFontSize(12);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(`4. Detailed Extra Expenses (${targetExps.length} Records)`, 14, nextY);
+
+      const expRows = targetExps.map(e => [
+        e.expense_date || '-',
+        e.expense_name,
+        e.bank || 'Vivek Bank',
+        formatPDFINR(e.amount)
+      ]);
+
+      if (expRows.length === 0) {
+        expRows.push(['No expenses recorded for this period', '-', '-', '-']);
+      } else {
+        // Add Total Row
+        expRows.push([
+          'TOTALS',
+          `${targetExps.length} Expenses`,
+          '-',
+          formatPDFINR(tExpenses)
+        ]);
+      }
+
+      doc.autoTable({
+        startY: nextY + 4,
+        head: [['Date', 'Expense Name', 'Paid From Bank', 'Amount (INR)']],
+        body: expRows,
+        theme: 'striped',
+        headStyles: { fillColor: [225, 29, 72], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.5 },
+        styles: { fontSize: 8, cellPadding: 2 },
+        columnStyles: {
+          0: { cellWidth: 25 },
+          1: { fontStyle: 'bold' },
+          3: { fontStyle: 'bold', textColor: [190, 18, 60] }
+        }
+      });
+
+      // Page numbers footer
+      const totalPages = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(148, 163, 184);
+        doc.text(
+          `Page ${i} of ${totalPages} • Confidential Business Accounting Document • Generated via Apex System`,
+          pageWidth / 2,
+          pageHeight - 8,
+          { align: 'center' }
+        );
+      }
+
+      const cleanMonthFile = isAll ? 'Lifetime' : targetMonth;
+      const fileName = `Business_Report_${cleanMonthFile}_${new Date().toISOString().split('T')[0]}.pdf`;
+      doc.save(fileName);
+
+      setIsPdfModalOpen(false);
+      setMessage(`PDF Report downloaded: ${fileName}`);
+      setTimeout(() => setMessage(''), 3000);
+    } catch (err) {
+      console.error('PDF Generation Error:', err);
+      alert('Error generating PDF: ' + err.message);
+    } finally {
+      setPdfGenerating(false);
+    }
   };
 
   // =========================================================================
@@ -849,13 +1031,17 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2 self-end md:self-center flex-wrap">
-            {/* Download Excel */}
+            {/* Download PDF */}
             <button
-              onClick={handleExportExcel}
-              className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+              onClick={() => {
+                setPdfSelectedMonth(selectedMonth || 'all');
+                setIsPdfModalOpen(true);
+              }}
+              className="px-3.5 py-2 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+              title="Download Full Details Financial PDF Report"
             >
-              <Download className="w-4 h-4" />
-              <span>Download Excel</span>
+              <FileText className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+              <span>Download PDF</span>
             </button>
 
             {/* Change Password */}
@@ -1841,6 +2027,91 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Download PDF Month Selector Modal */}
+      {isPdfModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-7 max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                    Download Financial PDF
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Full Details Statement &amp; Audit Report
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsPdfModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg p-1 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1.5">
+                  Select Month / Period
+                </label>
+                <select
+                  value={pdfSelectedMonth}
+                  onChange={(e) => setPdfSelectedMonth(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                >
+                  <option value="all">⭐ All Months (Lifetime Complete Audit)</option>
+                  {calculations.availableMonths.map((m) => (
+                    <option key={m} value={m}>
+                      📅 {formatMonthYear(m)}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[11px] text-slate-400 block mt-1">
+                  Choose a specific month or download lifetime complete business records.
+                </span>
+              </div>
+
+              {/* Report Preview Highlights */}
+              <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 text-xs space-y-1.5 text-slate-600 dark:text-slate-300">
+                <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Full details included in the PDF:</span>
+                </div>
+                <ul className="list-disc pl-5 space-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                  <li>Total Sales, Cost, Gross Profit, Expenses, &amp; Net Profit</li>
+                  <li>Vivek Bank &amp; Mayank Bank balances &amp; profit flow</li>
+                  <li>Full itemized table of product sales with quantities &amp; prices</li>
+                  <li>Full itemized table of extra expenses with bank details</li>
+                </ul>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsPdfModalOpen(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={pdfGenerating}
+                  onClick={() => handleExportPDF(pdfSelectedMonth)}
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-md shadow-indigo-600/20 flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>{pdfGenerating ? 'Generating PDF...' : 'Download PDF'}</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
