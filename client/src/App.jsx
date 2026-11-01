@@ -480,12 +480,15 @@ export default function App() {
     if (e) e.preventDefault();
     setSecurityError('');
 
-    if (!securityPasswordInput) {
+    const inputPass = String(securityPasswordInput || '').trim();
+    const storedPass = String(masterPassword || '1234').trim();
+
+    if (!inputPass) {
       setSecurityError('Please enter your login password to confirm');
       return;
     }
 
-    if (securityPasswordInput !== masterPassword) {
+    if (inputPass !== storedPass) {
       setSecurityError('Incorrect password! Action not authorized.');
       return;
     }
@@ -494,23 +497,30 @@ export default function App() {
       setSecurityLoading(true);
 
       if (securityAction.type === 'RESET') {
-        const batch = writeBatch(db);
         const prodsSnapshot = await getDocs(collection(db, 'products'));
-        prodsSnapshot.docs.forEach(d => batch.delete(d.ref));
         const expsSnapshot = await getDocs(collection(db, 'expenses'));
-        expsSnapshot.docs.forEach(d => batch.delete(d.ref));
-        await batch.commit();
+
+        if (prodsSnapshot.docs.length > 0 || expsSnapshot.docs.length > 0) {
+          const batch = writeBatch(db);
+          prodsSnapshot.docs.forEach(d => batch.delete(d.ref));
+          expsSnapshot.docs.forEach(d => batch.delete(d.ref));
+          await batch.commit();
+        }
 
         setMessage('All records cleared! Everything reset to ₹0.');
         setTimeout(() => setMessage(''), 3000);
       } else if (securityAction.type === 'DELETE_PRODUCT') {
-        await deleteDoc(doc(db, 'products', securityAction.id));
-        setMessage('Product entry deleted successfully.');
-        setTimeout(() => setMessage(''), 3000);
+        if (securityAction.id) {
+          await deleteDoc(doc(db, 'products', securityAction.id));
+          setMessage('Product entry deleted successfully.');
+          setTimeout(() => setMessage(''), 3000);
+        }
       } else if (securityAction.type === 'DELETE_EXPENSE') {
-        await deleteDoc(doc(db, 'expenses', securityAction.id));
-        setMessage('Expense entry deleted successfully.');
-        setTimeout(() => setMessage(''), 3000);
+        if (securityAction.id) {
+          await deleteDoc(doc(db, 'expenses', securityAction.id));
+          setMessage('Expense entry deleted successfully.');
+          setTimeout(() => setMessage(''), 3000);
+        }
       }
 
       setSecurityAction(null);
@@ -606,12 +616,15 @@ export default function App() {
     if (e) e.preventDefault();
     setLoginError('');
 
-    if (!loginPasswordInput) {
+    const inputPass = String(loginPasswordInput || '').trim();
+    const storedPass = String(masterPassword || '1234').trim();
+
+    if (!inputPass) {
       setLoginError('Please enter your password');
       return;
     }
 
-    if (loginPasswordInput === masterPassword) {
+    if (inputPass === storedPass) {
       setIsAuthenticated(true);
       if (rememberMe) {
         localStorage.setItem('apex_auth_unlocked', 'true');
@@ -640,7 +653,10 @@ export default function App() {
     setChangePassError('');
     setChangePassSuccess('');
 
-    if (currentPassInput !== masterPassword) {
+    const inputCurr = String(currentPassInput || '').trim();
+    const storedPass = String(masterPassword || '1234').trim();
+
+    if (inputCurr !== storedPass) {
       setChangePassError('Current password is incorrect');
       return;
     }
