@@ -101,9 +101,22 @@ export default function App() {
   const [expLoading, setExpLoading] = useState(false);
   const [expError, setExpError] = useState('');
 
-  // Notifications & Reset modal
+  // Notifications
   const [message, setMessage] = useState('');
-  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+
+  // Security Password Protection for Delete & Reset actions
+  const [securityAction, setSecurityAction] = useState(null); // { type: 'RESET' | 'DELETE_PRODUCT' | 'DELETE_EXPENSE', id?: string, title: string, subtitle: string }
+  const [securityPasswordInput, setSecurityPasswordInput] = useState('');
+  const [securityError, setSecurityError] = useState('');
+  const [showSecurityPassword, setShowSecurityPassword] = useState(false);
+  const [securityLoading, setSecurityLoading] = useState(false);
+
+  const requestSecurityConfirm = (type, id = null, title = '', subtitle = '') => {
+    setSecurityAction({ type, id, title, subtitle });
+    setSecurityPasswordInput('');
+    setSecurityError('');
+    setShowSecurityPassword(false);
+  };
 
   // Authentication & Security (Password Protection)
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
@@ -462,33 +475,52 @@ export default function App() {
     }
   };
 
-  // Delete Expense from Firestore
-  const handleDeleteExpense = async (id) => {
-    try {
-      await deleteDoc(doc(db, 'expenses', id));
-    } catch (err) {
-      console.error('Delete expense error:', err);
+  // Confirm Security Action with Login Password (Required for Reset or Delete)
+  const handleConfirmSecurityAction = async (e) => {
+    if (e) e.preventDefault();
+    setSecurityError('');
+
+    if (!securityPasswordInput) {
+      setSecurityError('Please enter your login password to confirm');
+      return;
     }
-  };
 
-  // Clear All to ₹0 in Firestore
-  const handleClearAll = async () => {
+    if (securityPasswordInput !== masterPassword) {
+      setSecurityError('Incorrect password! Action not authorized.');
+      return;
+    }
+
     try {
-      const batch = writeBatch(db);
+      setSecurityLoading(true);
 
-      const prodsSnapshot = await getDocs(collection(db, 'products'));
-      prodsSnapshot.docs.forEach(d => batch.delete(d.ref));
+      if (securityAction.type === 'RESET') {
+        const batch = writeBatch(db);
+        const prodsSnapshot = await getDocs(collection(db, 'products'));
+        prodsSnapshot.docs.forEach(d => batch.delete(d.ref));
+        const expsSnapshot = await getDocs(collection(db, 'expenses'));
+        expsSnapshot.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
 
-      const expsSnapshot = await getDocs(collection(db, 'expenses'));
-      expsSnapshot.docs.forEach(d => batch.delete(d.ref));
+        setMessage('All records cleared! Everything reset to ₹0.');
+        setTimeout(() => setMessage(''), 3000);
+      } else if (securityAction.type === 'DELETE_PRODUCT') {
+        await deleteDoc(doc(db, 'products', securityAction.id));
+        setMessage('Product entry deleted successfully.');
+        setTimeout(() => setMessage(''), 3000);
+      } else if (securityAction.type === 'DELETE_EXPENSE') {
+        await deleteDoc(doc(db, 'expenses', securityAction.id));
+        setMessage('Expense entry deleted successfully.');
+        setTimeout(() => setMessage(''), 3000);
+      }
 
-      await batch.commit();
-
-      setIsResetConfirmOpen(false);
-      setMessage('All Firebase records cleared! Everything reset to ₹0.');
-      setTimeout(() => setMessage(''), 3000);
+      setSecurityAction(null);
+      setSecurityPasswordInput('');
+      setSecurityError('');
     } catch (err) {
-      console.error('Clear all error:', err);
+      console.error('Security action error:', err);
+      setSecurityError(err.message || 'Action failed');
+    } finally {
+      setSecurityLoading(false);
     }
   };
 
@@ -850,9 +882,14 @@ export default function App() {
               <span>Lock</span>
             </button>
 
-            {/* Reset to ₹0 */}
+            {/* Reset to ₹0 (Requires Password) */}
             <button
-              onClick={() => setIsResetConfirmOpen(true)}
+              onClick={() => requestSecurityConfirm(
+                'RESET',
+                null,
+                'Reset Cloud Database to ₹0',
+                'Are you sure you want to permanently delete all entered products and expenses? Enter your master login password to authorize this action.'
+              )}
               className="px-3 py-2 rounded-xl border border-rose-200 dark:border-rose-900 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
             >
               Reset to ₹0
@@ -1458,9 +1495,14 @@ export default function App() {
                           </td>
                           <td className="py-2.5 px-3 text-center">
                             <button
-                              onClick={() => handleDeleteProduct(p.id)}
+                              onClick={() => requestSecurityConfirm(
+                                'DELETE_PRODUCT',
+                                p.id,
+                                `Delete Product: ${p.product_name}`,
+                                `Are you sure you want to delete this product sale entry (${p.product_name} • Profit ${formatINR(p.total_profit)})? Enter your login password to authorize deletion.`
+                              )}
                               title="Delete Product"
-                              className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800"
+                              className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -1602,9 +1644,14 @@ export default function App() {
                             <td className="py-2 px-3 text-right font-mono font-bold text-rose-600">{formatINR(e.amount)}</td>
                             <td className="py-2 px-3 text-center">
                               <button
-                                onClick={() => handleDeleteExpense(e.id)}
+                                onClick={() => requestSecurityConfirm(
+                                  'DELETE_EXPENSE',
+                                  e.id,
+                                  `Delete Expense: ${e.expense_name}`,
+                                  `Are you sure you want to delete this expense entry (${e.expense_name} • ${formatINR(e.amount)})? Enter your login password to authorize deletion.`
+                                )}
                                 title="Delete Expense"
-                                className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800"
+                                className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -1622,31 +1669,89 @@ export default function App() {
 
       </div>
 
-      {/* Reset Confirmation Modal */}
-      {isResetConfirmOpen && (
+      {/* Security Password Confirmation Modal (Delete / Reset Protection) */}
+      {securityAction && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-sm w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4">
-            <div className="flex items-center gap-3 text-rose-600">
-              <AlertTriangle className="w-6 h-6" />
-              <h3 className="font-bold text-lg text-slate-900 dark:text-white">Reset Cloud Database to ₹0?</h3>
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-7 max-w-md w-full border border-slate-200 dark:border-slate-800 shadow-2xl space-y-5 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-50 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 dark:text-white text-base">
+                    {securityAction.title}
+                  </h3>
+                  <p className="text-xs text-rose-500 font-semibold">
+                    Master Password Required
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSecurityAction(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-lg p-1 cursor-pointer"
+              >
+                ✕
+              </button>
             </div>
+
             <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-              Are you sure you want to permanently delete all entered products and expenses from Firebase Cloud, resetting all metrics and bank accounts to ₹0.00?
+              {securityAction.subtitle}
             </p>
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                onClick={() => setIsResetConfirmOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleClearAll}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-sm"
-              >
-                Yes, Reset Cloud Database
-              </button>
-            </div>
+
+            <form onSubmit={handleConfirmSecurityAction} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                  Enter Login Password to Confirm
+                </label>
+                <div className="relative">
+                  <input
+                    type={showSecurityPassword ? 'text' : 'password'}
+                    autoFocus
+                    value={securityPasswordInput}
+                    onChange={(e) => {
+                      setSecurityPasswordInput(e.target.value);
+                      setSecurityError('');
+                    }}
+                    placeholder="Enter your login password..."
+                    className="w-full pl-3.5 pr-10 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 font-mono"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowSecurityPassword(!showSecurityPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 cursor-pointer"
+                    tabIndex={-1}
+                  >
+                    {showSecurityPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {securityError && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>{securityError}</span>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setSecurityAction(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={securityLoading}
+                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md shadow-rose-600/20 cursor-pointer disabled:opacity-50"
+                >
+                  {securityLoading ? 'Verifying...' : 'Authorize & Delete'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
