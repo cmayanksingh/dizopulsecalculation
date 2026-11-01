@@ -104,8 +104,8 @@ export default function App() {
   // Notifications
   const [message, setMessage] = useState('');
 
-  // Security Password Protection for Delete & Reset actions
-  const [securityAction, setSecurityAction] = useState(null); // { type: 'RESET' | 'DELETE_PRODUCT' | 'DELETE_EXPENSE', id?: string, title: string, subtitle: string }
+  // Security Password Protection for Delete actions (Delete Product / Delete Expense)
+  const [securityAction, setSecurityAction] = useState(null); // { type: 'DELETE_PRODUCT' | 'DELETE_EXPENSE', id?: string, title: string, subtitle: string }
   const [securityPasswordInput, setSecurityPasswordInput] = useState('');
   const [securityError, setSecurityError] = useState('');
   const [showSecurityPassword, setShowSecurityPassword] = useState(false);
@@ -496,20 +496,7 @@ export default function App() {
     try {
       setSecurityLoading(true);
 
-      if (securityAction.type === 'RESET') {
-        const prodsSnapshot = await getDocs(collection(db, 'products'));
-        const expsSnapshot = await getDocs(collection(db, 'expenses'));
-
-        if (prodsSnapshot.docs.length > 0 || expsSnapshot.docs.length > 0) {
-          const batch = writeBatch(db);
-          prodsSnapshot.docs.forEach(d => batch.delete(d.ref));
-          expsSnapshot.docs.forEach(d => batch.delete(d.ref));
-          await batch.commit();
-        }
-
-        setMessage('All records cleared! Everything reset to ₹0.');
-        setTimeout(() => setMessage(''), 3000);
-      } else if (securityAction.type === 'DELETE_PRODUCT') {
+      if (securityAction.type === 'DELETE_PRODUCT') {
         if (securityAction.id) {
           await deleteDoc(doc(db, 'products', securityAction.id));
           setMessage('Product entry deleted successfully.');
@@ -896,19 +883,6 @@ export default function App() {
             >
               <LogOut className="w-4 h-4 text-rose-500" />
               <span>Lock</span>
-            </button>
-
-            {/* Reset to ₹0 (Requires Password) */}
-            <button
-              onClick={() => requestSecurityConfirm(
-                'RESET',
-                null,
-                'Reset Cloud Database to ₹0',
-                'Are you sure you want to permanently delete all entered products and expenses? Enter your master login password to authorize this action.'
-              )}
-              className="px-3 py-2 rounded-xl border border-rose-200 dark:border-rose-900 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
-            >
-              Reset to ₹0
             </button>
 
             {/* Dark Mode */}
