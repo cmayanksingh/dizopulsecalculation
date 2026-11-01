@@ -1,0 +1,28 @@
+{
+  "name": "business-accounting-sales-dashboard",
+  "version": "1.0.0",
+  "description": "Professional Business Accounting & Sales Management System with Automatic Calculation Engine",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "server": "node server/index.js",
+    "client": "cd client && npm run dev",
+    "build": "cd client && npm run build"
+  },
+  "keywords": [
+    "accounting",
+    "sales-management",
+    "profit-and-loss",
+    "cogs",
+    "inventory",
+    "inr-currency",
+    "dashboard"
+  ],
+  "author": "Antigravity Engineering",
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "cors": "^2.8.5",
+    "express": "^5.0.1"
+  }
+}
